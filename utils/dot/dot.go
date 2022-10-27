@@ -4,15 +4,11 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"text/template"
-
-	"github.com/goccy/go-graphviz"
 )
 
 // location of dot executable for converting from .dot to .svg
@@ -21,37 +17,38 @@ var dotExe string
 
 // dotToImageGraphviz generates a SVG using the 'dot' utility, returning the filepath
 func dotToImageGraphviz(outfname string, format string, dot []byte) (string, error) {
-	if dotExe == "" {
-		dot, err := exec.LookPath("dot")
-		if err != nil {
-			log.Fatalln("unable to find program 'dot', please install it or check your PATH")
-		}
-		dotExe = dot
-	}
+	return "", nil
+	// if dotExe == "" {
+	// 	dot, err := exec.LookPath("dot")
+	// 	if err != nil {
+	// 		log.Fatalln("unable to find program 'dot', please install it or check your PATH")
+	// 	}
+	// 	dotExe = dot
+	// }
 
-	var basepath string
-	if outfname == "" {
-		basepath = filepath.Join(os.TempDir(), "go-callvis_export.")
-	} else {
-		basepath = fmt.Sprintf("%s.", outfname)
-	}
+	// var basepath string
+	// if outfname == "" {
+	// 	basepath = filepath.Join(os.TempDir(), "go-callvis_export.")
+	// } else {
+	// 	basepath = fmt.Sprintf("%s.", outfname)
+	// }
 
-	dotpath := basepath + "dot"
-	if err := ioutil.WriteFile(dotpath, dot, 0644); err != nil {
-		return "", err
-	}
+	// dotpath := basepath + "dot"
+	// if err := ioutil.WriteFile(dotpath, dot, 0644); err != nil {
+	// 	return "", err
+	// }
 
-	fmt.Printf("Exported dot graph to %s\n", dotpath)
+	// fmt.Printf("Exported dot graph to %s\n", dotpath)
 
-	img := basepath + format
-	cmd := exec.Command(dotExe, fmt.Sprintf("-T%s", format), "-o", img)
-	cmd.Stdin = bytes.NewReader(dot)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("command '%v': %v\n%v", cmd, err, stderr.String())
-	}
-	return img, nil
+	// img := basepath + format
+	// cmd := exec.Command(dotExe, fmt.Sprintf("-T%s", format), "-o", img)
+	// cmd.Stdin = bytes.NewReader(dot)
+	// var stderr bytes.Buffer
+	// cmd.Stderr = &stderr
+	// if err := cmd.Run(); err != nil {
+	// 	return "", fmt.Errorf("command '%v': %v\n%v", cmd, err, stderr.String())
+	// }
+	// return img, nil
 }
 
 func DotToImage(outfname string, format string, dot []byte) (string, error) {
@@ -59,27 +56,28 @@ func DotToImage(outfname string, format string, dot []byte) (string, error) {
 		return dotToImageGraphviz(outfname, format, dot)
 	}
 
-	g := graphviz.New()
-	graph, err := graphviz.ParseBytes(dot)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		if err := graph.Close(); err != nil {
-			log.Fatal(err)
-		}
-		g.Close()
-	}()
-	var img string
-	if outfname == "" {
-		img = filepath.Join(os.TempDir(), fmt.Sprintf("go-callvis_export.%s", format))
-	} else {
-		img = fmt.Sprintf("%s.%s", outfname, format)
-	}
-	if err := g.RenderFilename(graph, graphviz.Format(format), img); err != nil {
-		return "", err
-	}
-	return img, nil
+	return "", nil
+	// g := graphviz.New()
+	// graph, err := graphviz.ParseBytes(dot)
+	// if err != nil {
+	// 	return "", err
+	// }
+	// defer func() {
+	// 	if err := graph.Close(); err != nil {
+	// 		log.Fatal(err)
+	// 	}
+	// 	g.Close()
+	// }()
+	// var img string
+	// if outfname == "" {
+	// 	img = filepath.Join(os.TempDir(), fmt.Sprintf("go-callvis_export.%s", format))
+	// } else {
+	// 	img = fmt.Sprintf("%s.%s", outfname, format)
+	// }
+	// if err := g.RenderFilename(graph, graphviz.Format(format), img); err != nil {
+	// 	return "", err
+	// }
+	// return img, nil
 }
 
 const tmplCluster = `{{define "cluster" -}}
@@ -133,7 +131,7 @@ const tmplGraph = `digraph GoroutineTopology {
 }
 `
 
-//==[ type def/func: DotCluster ]===============================================
+// ==[ type def/func: DotCluster ]===============================================
 type DotCluster struct {
 	ID       string
 	Clusters map[string]*DotCluster
@@ -164,7 +162,7 @@ func (c *DotCluster) countNodes() int {
 	return res
 }
 
-//==[ type def/func: DotNode    ]===============================================
+// ==[ type def/func: DotNode    ]===============================================
 type DotNode struct {
 	ID    string
 	Attrs DotAttrs
@@ -174,14 +172,14 @@ func (n *DotNode) String() string {
 	return n.ID
 }
 
-//==[ type def/func: DotEdge    ]===============================================
+// ==[ type def/func: DotEdge    ]===============================================
 type DotEdge struct {
 	From  *DotNode
 	To    *DotNode
 	Attrs DotAttrs
 }
 
-//==[ type def/func: DotAttrs   ]===============================================
+// ==[ type def/func: DotAttrs   ]===============================================
 type DotAttrs map[string]string
 
 func (p DotAttrs) List() []string {
@@ -200,7 +198,7 @@ func (p DotAttrs) Lines() string {
 	return strings.Join(p.List(), "\n")
 }
 
-//==[ type def/func: DotGraph   ]===============================================
+// ==[ type def/func: DotGraph   ]===============================================
 type DotGraph struct {
 	Title    string
 	Attrs    DotAttrs
