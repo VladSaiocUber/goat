@@ -76,7 +76,7 @@ func main() {
 		return
 	}
 
-	prog, _ := ssautil.AllPackages(pkgs, ssa.InstantiateGenerics)
+	prog, _ := ssautil.AllPackages(pkgs, ssa.NaiveForm|ssa.InstantiateGenerics)
 	prog.Build()
 
 	mains := ssautil.MainPackages(prog.AllPackages())
