@@ -15,6 +15,7 @@ import (
 	"github.com/cs-au-dk/goat/pkgutil"
 	tu "github.com/cs-au-dk/goat/testutil"
 	"github.com/cs-au-dk/goat/utils"
+	"github.com/cs-au-dk/goat/utils/dot"
 	"github.com/cs-au-dk/goat/utils/graph"
 	"github.com/cs-au-dk/goat/utils/hmap"
 	"github.com/cs-au-dk/goat/vistool"

@@ -33,6 +33,9 @@ func GetPrimitives(
 	 * we would not (currently) be able to distinguish uses of mu1 and mu2.
 	 * Requires identification of primitives both by allocation site and Path.
 	 */
+	// NOTE: Collection of non-channel primitives is currently completely
+	// disabled in the process function and in the mapping of primitives to
+	// functions in which they are used (below).
 	p = make(Primitives)
 
 	// Compute reachable functions first, so we can check that primitives'
