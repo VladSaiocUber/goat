@@ -17,12 +17,14 @@ import (
 // and mapping them to positions, such that SSA `make(chan)` instructions
 // can be mapped back to their corresponding names.
 type chanNameCollector struct {
-	sync.Mutex
 	function *ast.FuncDecl
 }
 
-// ChannelNames is a map from source positions to strings denoting channel names.
-var ChannelNames = make(map[token.Pos]string)
+var (
+	lock = &sync.Mutex{}
+	// ChannelNames is a map from source positions to strings denoting channel names.
+	ChannelNames = make(map[token.Pos]string)
+)
 
 func (v *chanNameCollector) addName(pos token.Pos, name string) {
 	funName := "<global>"
@@ -30,8 +32,8 @@ func (v *chanNameCollector) addName(pos token.Pos, name string) {
 		funName = v.function.Name.Name
 	}
 
-	v.Lock()
-	defer v.Unlock()
+	lock.Lock()
+	defer lock.Unlock()
 	ChannelNames[pos] = fmt.Sprintf("%s.%s", funName, name)
 }
 
