@@ -2,14 +2,13 @@ package gotopo
 
 import (
 	"go/token"
-	"go/types"
 	"strings"
 
+	u "github.com/cs-au-dk/goat/analysis/upfront"
 	"github.com/cs-au-dk/goat/pkgutil"
 	"github.com/cs-au-dk/goat/utils"
 	"github.com/cs-au-dk/goat/utils/graph"
 
-	"golang.org/x/tools/go/pointer"
 	"golang.org/x/tools/go/ssa"
 )
 
@@ -24,8 +23,9 @@ type Primitives map[*ssa.Function]*Func
 // TODO: We can make the local requirement an option?
 func GetPrimitives(
 	entry *ssa.Function,
-	pt *pointer.Result,
+	pt *u.PointerResult,
 	G graph.Graph[*ssa.Function],
+	onlyChannels bool,
 ) (p Primitives, primsToUses map[ssa.Value]map[*ssa.Function]struct{}) {
 	/* TODO: We currently lose some precision from treating every primitive
 	 * inside a struct as the same primitive. I.e. with a struct such as
@@ -47,7 +47,7 @@ func GetPrimitives(
 	})
 
 	G.BFS(entry, func(f *ssa.Function) bool {
-		p.process(f, pt, reachable)
+		p.process(f, pt, reachable, onlyChannels)
 		return false
 	})
 
@@ -56,9 +56,8 @@ func GetPrimitives(
 		for _, usedPrimitives := range []map[ssa.Value]struct{}{
 			usageInfo.Chans(),
 			usageInfo.OutChans(),
-			// TODO: Temporarily disabled because analysis of locks
-			// seem to time out more often than analysis of channels.
-			//usageInfo.Sync(),
+			usageInfo.Sync(),
+			usageInfo.OutSync(),
 		} {
 			for prim := range usedPrimitives {
 				if _, seen := primsToUses[prim]; !seen {
@@ -86,7 +85,7 @@ func (p Primitives) Chans() utils.SSAValueSet {
 	return set
 }
 
-type _CONCURRENT_CALL = int
+type _CONCURRENT_CALL int
 
 const (
 	_NOT_CONCURRENT = iota
@@ -128,18 +127,15 @@ func isConcurrentCall(cc ssa.CallCommon) (ssa.Value, _CONCURRENT_CALL) {
 
 	if sc := cc.StaticCallee(); sc != nil {
 		switch len(cc.Args) {
-		case 1:
+		case 1, 2:
 			rcvrType := receiver.Type()
 
-			if utils.IsNamedType(rcvrType, "sync", "Mutex") ||
-				utils.IsNamedType(rcvrType, "sync", "RWMutex") ||
-				utils.IsNamedType(rcvrType, "sync", "Cond") {
+			if utils.IsModelledConcurrentAPIType(rcvrType) {
 				switch {
-				// Mutex method call:
+				// Both WaitGroup and Cond have a blocking Wait
 				case oneOf(sc.Name(), "Lock", "RLock", "Wait"):
 					return receiver, _BLOCKING_SYNC_CALL
-				// RWMutex method call:
-				case oneOf(sc.Name(), "Unlock", "RUnlock", "Broadcast", "Signal"):
+				case oneOf(sc.Name(), "Unlock", "RUnlock", "Broadcast", "Signal", "Done", "Add"):
 					return receiver, _SYNC_CALL
 				}
 			}
@@ -148,7 +144,12 @@ func isConcurrentCall(cc ssa.CallCommon) (ssa.Value, _CONCURRENT_CALL) {
 	return nil, _NOT_CONCURRENT
 }
 
-func (p Primitives) process(f *ssa.Function, pt *pointer.Result, reachableFuns map[*ssa.Function]bool) {
+func (p Primitives) process(
+	f *ssa.Function,
+	pt *u.PointerResult,
+	reachableFuns map[*ssa.Function]bool,
+	onlyChannels bool,
+) {
 	fu := newFunc()
 
 	// Functions with no blocks are un-analyzable.
@@ -159,8 +160,6 @@ func (p Primitives) process(f *ssa.Function, pt *pointer.Result, reachableFuns m
 		return
 	}
 
-	// inDataflow := make(map[ssa.Value]struct{})
-
 	addPrimitive := func(v ssa.Value, update func(ssa.Value)) {
 		for p := range getPrimitives(v, pt) {
 			if pkgutil.IsLocal(p) && reachableFuns[p.Parent()] {
@@ -170,6 +169,7 @@ func (p Primitives) process(f *ssa.Function, pt *pointer.Result, reachableFuns m
 	}
 
 	// Add all potential parameters to the in-flow set
+	// inDataflow := make(map[ssa.Value]struct{})
 	// for _, p := range f.Params {
 	// 	if _, ok := p.Type().Underlying().(*types.Chan); ok {
 	// 		addPrimitive(p, fu.AddInChan)
@@ -213,15 +213,17 @@ func (p Primitives) process(f *ssa.Function, pt *pointer.Result, reachableFuns m
 				switch {
 				case call == _CHAN_CALL:
 					addPrimitive(p, fu.AddUseChan)
-					// case call == _SYNC_CALL || call == _BLOCKING_SYNC_CALL:
-					// 	addPrimitive(p, fu.AddUseSync)
+
+				// Only process sync calls if onlyChannels is false
+				case (call == _SYNC_CALL || call == _BLOCKING_SYNC_CALL) && !onlyChannels:
+					addPrimitive(p, fu.AddUseSync)
 				}
 
-				// if val := i.Value(); val != nil {
-				// 	if _, ok := val.Type().Underlying().(*types.Chan); ok {
-				// 		addPrimitive(p, fu.AddInChan)
-				// 	}
-				// }
+				/* if val := i.Value(); val != nil {
+					if _, ok := val.Type().Underlying().(*types.Chan); ok {
+						addPrimitive(p, fu.AddInChan)
+					}
+				} */
 			case *ssa.Send:
 				addPrimitive(i.Chan, fu.AddUseChan)
 			case *ssa.UnOp:
@@ -234,9 +236,13 @@ func (p Primitives) process(f *ssa.Function, pt *pointer.Result, reachableFuns m
 				}
 			case *ssa.Return:
 				for _, r := range i.Results {
-					if _, ok := r.Type().Underlying().(*types.Chan); ok {
-						addPrimitive(r, fu.AddOutChan)
-					}
+					addPrimitive(r, func(prim ssa.Value) {
+						if _, isMkChan := prim.(*ssa.MakeChan); isMkChan {
+							fu.AddOutChan(prim)
+						} else if !onlyChannels && utils.AllocatesConcurrencyPrimitive(prim) {
+							fu.AddOutSync(prim)
+						}
+					})
 				}
 			}
 		}
