@@ -67,6 +67,8 @@ gobench/goker/blocking/moby/4395`, "\n")[1:]
 		}
 
 		t.Run(tu.GoKerTestName(test), func(t *testing.T) {
+			g := goldie.New(t)
+
 			t.Parallel()
 			tu.ParallelHelper(t,
 				tu.LoadExampleAsPackages(t, "../..", test, true),
@@ -103,6 +105,13 @@ gobench/goker/blocking/moby/4395`, "\n")[1:]
 					})
 
 					t.Log(len(psets), "PSets to process")
+
+
+					var out bytes.Buffer
+					for i, pset := range psets {
+						fmt.Fprintf(&out, "PSet %d:\n%s\n\n", i, pset)
+					}
+					g.Assert(t, fmt.Sprintf("%s/psets", t.Name()), out.Bytes())
 
 					blocks := make(Blocks)
 
@@ -202,11 +211,11 @@ gobench/goker/blocking/moby/4395`, "\n")[1:]
 					fnCnt := metrics.falseNegatives - fnBefore
 					tpCnt := metrics.truePositives - tpBefore
 
-					var out bytes.Buffer
+					out.Reset()
 					sort.Strings(fns)
 					fmt.Fprintf(&out, "TP: %d FN: %d\n%s\n", tpCnt, fnCnt, strings.Join(fns, "\n"))
 
-					goldie.New(t).Assert(t, t.Name(), out.Bytes())
+					g.Assert(t, fmt.Sprintf("%s/bugs", t.Name()), out.Bytes())
 
 					if t.Failed() {
 						t.Log("Detected blocks:\n", blocks)

@@ -97,13 +97,26 @@ func (p PointsTo) FilterNil() PointsTo {
 
 // Filter all the loctions in a points-to set that do not satisfy the predicate.
 func (p PointsTo) Filter(pred func(l loc.Location) bool) PointsTo {
-	locs := make([]loc.Location, 0, p.Size())
+	locs := []loc.Location{}
+	size := 0
 	p.mem.ForEach(func(l loc.Location, _ struct{}) {
+		size++
+
 		if pred(l) {
 			locs = append(locs, l)
 		}
 	})
 
+	if size == len(locs) {
+		// If we don't want to remove any locations, then we don't have to
+		// construct a new points-to set.
+		return p
+	}
+
+	// TODO: It may be worth it to change the implementation such that
+	// locations are explicitly removed (instead of reconstructing the full
+	// points-to set), if a sufficiently small fraction of locations are to be
+	// removed.
 	return elFact.PointsTo(locs...)
 }
 
@@ -187,9 +200,17 @@ func (m PointsTo) join(o Element) Element {
 
 // MonoJoin is a monomorphic variant of m ⊔ o for points-to sets.
 func (m PointsTo) MonoJoin(o PointsTo) PointsTo {
-	m.mem = m.mem.Merge(o.mem, func(_, b struct{}) (struct{}, bool) {
+	pm := m.mem
+	merged := m.mem.Merge(o.mem, func(_, b struct{}) (struct{}, bool) {
 		return b, true
 	})
+	m.mem = merged
+
+	if merged == pm || merged == o.mem {
+		// Points-to set is guaranteed to be in canonical form.
+		return m
+	}
+
 	return m.Filter(func(l loc.Location) bool {
 		rep, hasRep := recRepresentative(l)
 		return !hasRep || !m.Contains(rep)

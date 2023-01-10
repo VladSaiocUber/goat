@@ -241,7 +241,7 @@ func main() {
 
 				for _, pset := range psets {
 					reflectedChans.ForEach(func(rCh ssa.Value) {
-						pset.Map = pset.Delete(rCh)
+						pset = pset.Remove(rCh)
 					})
 
 					if !pset.Empty() && !seen.Get(pset) {

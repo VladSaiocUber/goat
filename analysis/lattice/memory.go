@@ -215,6 +215,8 @@ func (w Memory) GetUnsafe(key loc.AddressableLocation) AbstractValue {
 func (w Memory) IsMultialloc(key loc.AddressableLocation) bool {
 	if l, isAllocSite := key.(loc.AllocationSiteLocation); !isAllocSite {
 		return false
+	} else if IsTopLocation(key) {
+		return true
 	} else {
 		flag, found := w.allocs.Lookup(l)
 		return found && bool(flag)

@@ -5,8 +5,6 @@ import (
 	"go/types"
 	"log"
 	"os"
-	"regexp"
-	"strings"
 
 	"github.com/cs-au-dk/goat/utils"
 
@@ -33,6 +31,13 @@ type (
 		Map       bool
 		Slice     bool
 		Pointer   bool
+	}
+
+	// PointerResult wraps around the points-to analysis results.
+	PointerResult struct {
+		pointer.Result
+		CondQueries    map[ssa.Value]*pointer.Pointer
+		PayloadQueries map[ssa.Value][]*pointer.Pointer
 	}
 )
 
@@ -61,8 +66,18 @@ func collectPtsToQueries(
 	prog *ssa.Program,
 	config *pointer.Config,
 	include IncludeType,
-) map[ssa.Value]*pointer.Pointer {
-	cQueries := map[ssa.Value]*pointer.Pointer{}
+) *PointerResult {
+	ptResult := &PointerResult{
+		// CondQueries maps SSA values to pointer equivalence classes.
+		CondQueries: map[ssa.Value]*pointer.Pointer{},
+		// StructPayloadQueries maps SSA values of aggregate data structures appearing as channel payloads
+		// to sets of pointer equivalence classes. Each pointer equivalence class denotes
+		// an aggregate data structure access.
+		PayloadQueries: make(map[ssa.Value][]*pointer.Pointer),
+	}
+
+	// maybeAdd inspects an SSA value and adds points-to queries to the PTA
+	// configuration based on their types.
 	maybeAdd := func(v ssa.Value) {
 		prettyPrint := func(v ssa.Value) {
 			opts.OnVerbose(func() {
@@ -73,24 +88,30 @@ func collectPtsToQueries(
 			})
 		}
 
+		// Check the type of the SSA value.
 		if typ := include.checkType(v.Type()); typ != _NOT_TYPE {
 			prettyPrint(v)
 			if typ&_DIRECT != 0 {
+				// If the value is a direct heap address, add a direct query for the SSA value.
 				config.AddQuery(v)
 
 				// Add extended queries for the Locker field of Cond objects.
 				// TODO: This assumes that Cond objects are always allocated directly (not
 				// embedded in another struct), which I guess is not a safe assumption?
 				if pt, ok := v.Type().Underlying().(*types.Pointer); ok && !opts.SkipSync() {
+					// The underlying type has to be a pointer, and standard library concurrency
+					// primitives must fall under the scope of the analysis.
 					if _, isAlloc := v.(*ssa.Alloc); isAlloc &&
 						utils.IsNamedTypeStrict(pt.Elem(), "sync", "Cond") {
-
+						// If the value is of type *sync.Cond:
+						// 1. Add an extended query for the locker of the *sync.Cond.
 						ptr, err := config.AddExtendedQuery(v, "x.L")
 						if err != nil {
 							log.Fatalf("Failed to add extended query: %v", err)
 						}
 
-						cQueries[v] = ptr
+						// 2. Connect the *sync.Cond SSA value to the pointer equivalence class.
+						ptResult.CondQueries[v] = ptr
 					}
 				}
 			}
@@ -121,13 +142,22 @@ func collectPtsToQueries(
 				case *ssa.Range:
 				case ssa.Value:
 					maybeAdd(v)
+				case *ssa.Send:
+					for _, query := range getExtendedQueries(v.X) {
+						ptr, err := config.AddExtendedQuery(v.X, query)
+						if err != nil {
+							log.Fatalf("Failed to add extended query: %v", err)
+						}
+
+						ptResult.PayloadQueries[v.X] = append(ptResult.PayloadQueries[v.X], ptr)
+					}
 				}
 			}
 		}
 		verbosePrint("\n")
 	}
 
-	return cQueries
+	return ptResult
 }
 
 // checkType ensures that the given type should be targetted
@@ -180,11 +210,6 @@ func GetPtsToSets(prog *ssa.Program, mains []*ssa.Package) *PointerResult {
 	})
 }
 
-type PointerResult struct {
-	pointer.Result
-	CondQueries map[ssa.Value]*pointer.Pointer
-}
-
 // Andersen is a wrapper around the points-to analysis. Requires a program, a list of main packages
 // and an include configuration according to which points-to queries may be collected.
 func Andersen(prog *ssa.Program, mains []*ssa.Package, include IncludeType) *PointerResult {
@@ -193,7 +218,7 @@ func Andersen(prog *ssa.Program, mains []*ssa.Package, include IncludeType) *Poi
 		BuildCallGraph: true,
 	}
 
-	cQueries := collectPtsToQueries(prog, a_config, include)
+	ptResult := collectPtsToQueries(prog, a_config, include)
 
 	result, err := pointer.Analyze(a_config)
 	if err != nil {
@@ -202,7 +227,8 @@ func Andersen(prog *ssa.Program, mains []*ssa.Package, include IncludeType) *Poi
 		os.Exit(1)
 	}
 
-	return &PointerResult{*result, cQueries}
+	ptResult.Result = *result
+	return ptResult
 }
 
 // TotalAndersen performs points-to analysis for all pointer-like values in the given SSA program.
@@ -210,56 +236,4 @@ func TotalAndersen(prog *ssa.Program, mains []*ssa.Package) *PointerResult {
 	return Andersen(prog, mains, IncludeType{
 		All: true,
 	})
-}
-
-type (
-	// accessPath is a baseline from which access actions used by points-to labels may be derived.
-	accessPath struct{}
-
-	// FieldAccess is an access action that models reading the field of a struct value. The "Field"
-	// field encodes the name of the field.
-	FieldAccess struct {
-		accessPath
-		Field string
-	}
-	// ArrayAccess is an access action that models reading an index in an array or slice value.
-	ArrayAccess struct{ accessPath }
-
-	// Acccess is implemented by all access actions.
-	Access interface{ accessTag() }
-)
-
-// accessTag is implemented by any access action
-func (accessPath) accessTag() {}
-
-// Access paths can be of the form: x.y.[*].
-// We specify that field names can contain anything but a dot and an open square bracket
-var pathRegexp = regexp.MustCompile(`\.[^.[]+|\[\*\]`)
-
-// SplitLabel takes a points-to analysis label and splits it into the root SSA value,
-// and a sequence of access actions composing an access path.
-func SplitLabel(label *pointer.Label) (ssa.Value, []Access) {
-	v := label.Value()
-	if path := label.Path(); path == "" {
-		// If the label does not contain an access path, return the SSA value
-		// and an empty set of access actions.
-		return v, nil
-	} else {
-		components := pathRegexp.FindAllString(path, -1)
-		if strings.Join(components, "") != path {
-			log.Fatalln("Path match was not full", components, path, label)
-		}
-
-		accesses := make([]Access, len(components))
-		for i, f := range components {
-			// Check whether the access action is an array access, [*], or field access.
-			if f == "[*]" {
-				accesses[i] = ArrayAccess{}
-			} else {
-				// The dot before the field name is discarded
-				accesses[i] = FieldAccess{Field: f[1:]}
-			}
-		}
-		return v, accesses
-	}
 }

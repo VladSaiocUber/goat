@@ -341,14 +341,7 @@ func (s *AbsConfiguration) GetCommSuccessors(
 					// If the Cond is multi-allocated, then it is not guaranteed that all
 					// candidates will be progressed along on successor. Instead, all
 					// goroutine combinations must be considered.
-					iCandList := make([]any, 0, len(candList))
-					for _, cand := range candList {
-						iCandList = append(iCandList, cand)
-					}
-
-					set.Subsets(candList).ForEach(func(candList []GoroCand) {
-						getSuccessor(candList)
-					})
+					set.Subsets(candList).ForEach(getSuccessor)
 				}
 
 			case *leaf.MuLock:

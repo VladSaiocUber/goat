@@ -1951,7 +1951,7 @@ func TestAbstractInterpretation(t *testing.T) {
 			}),
 		},
 		{
-			"unop_int_sub",
+			"unop-int-sub",
 			`var x int
 			func tmain() int {
 				x = 1
@@ -1960,16 +1960,37 @@ func TestAbstractInterpretation(t *testing.T) {
 			rvalEq(Elements().AbstractBasic(int64(-1))),
 		},
 		{
-			"intdiv_by_zero",
+			"intdiv-by-zero",
 			`var x int
 			func tmain() int { return 2 / x }`,
 			checkMustPanic,
 		},
 		{
-			"intmod_by_zero",
+			"intmod-by-zero",
 			`var x int
 			func tmain() int { return 2 % x }`,
 			checkMustPanic,
+		},
+		{
+			"[disabled] recursion-multialloc-stackmem",
+			// The memory allocated for the struct is allocated on the stack,
+			// but we cannot assume that it corresponds to a single concrete
+			// memory cell at runtime since the function is recursive.
+			`var global = false
+			func f(n int) {
+				var b struct{x bool}
+				b.x = n == 1
+				if b.x {
+					f(0)
+					global = b.x
+				}
+				b.x = false
+			}
+			func tmain() bool {
+				f(1)
+				return global
+			}`,
+			rvalGeq(L.Elements().AbstractBasic(true)),
 		},
 		{
 			"[disabled] andersen-unsoundness-crash",

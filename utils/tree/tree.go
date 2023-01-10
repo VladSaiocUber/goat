@@ -51,9 +51,7 @@ func (tree Tree[K, V]) InsertOrMerge(key K, value V, f mergeFunc[V]) Tree[K, V] 
 
 // Remove a mapping for the given key if it exists.
 func (tree Tree[K, V]) Remove(key K) Tree[K, V] {
-	if _, ok := tree.Lookup(key); ok {
-		tree.root = remove(tree.root, tree.hash(key), key, tree.hasher)
-	}
+	tree.root = remove(tree.root, tree.hash(key), key, tree.hasher)
 	return tree
 }
 
@@ -308,6 +306,8 @@ func insert[K, V any](tree node[K, V], hash keyt, key K, value V, hasher immutab
 	return join(hash, prefix, newLeaf, tree), true
 }
 
+// remove returns a tree with the key-value pair matching the provided key if it exists.
+// If such a pair does not exist the input tree is returned.
 func remove[K, V any](tree node[K, V], hash keyt, key K, hasher immutable.Hasher[K]) node[K, V] {
 	if tree == nil {
 		return tree
@@ -316,28 +316,35 @@ func remove[K, V any](tree node[K, V], hash keyt, key K, hasher immutable.Hasher
 	switch tree := tree.(type) {
 	case *leaf[K, V]:
 		if tree.key == hash {
-			newLeaf := &leaf[K, V]{tree.key, nil}
-			// Copy all pairs that do not match the key
-			for _, pr := range tree.values {
-				if !hasher.Equal(key, pr.key) {
-					newLeaf.values = append(newLeaf.values, pr)
+			for i, pr := range tree.values {
+				if hasher.Equal(key, pr.key) {
+					if len(tree.values) == 1 { // Common case
+						return nil
+					}
+
+					return &leaf[K, V]{
+						tree.key,
+						// Remove the i'th entry
+						append(tree.values[:i:i], tree.values[i+1:]...),
+					}
 				}
 			}
-
-			if len(newLeaf.values) == 0 {
-				return nil
-			}
-
-			return newLeaf
 		}
 	case *branch[K, V]:
 		if tree.match(hash) {
 			left, right := tree.left, tree.right
 			if zeroBit(hash, tree.branchBit) {
 				left = remove(left, hash, key, hasher)
+				if left == tree.left {
+					return tree
+				}
 			} else {
 				right = remove(right, hash, key, hasher)
+				if right == tree.right {
+					return tree
+				}
 			}
+
 			return br(tree.prefix, tree.branchBit, left, right)
 		}
 	default:

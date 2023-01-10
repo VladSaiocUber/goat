@@ -98,8 +98,7 @@ func TestStaticAnalysisPSets(t *testing.T) {
 				<-ch1 //@ blocks
 			}`,
 			BlockAnalysisTest,
-		},
-		{
+		}, {
 			"top-inject-embedded-mutex",
 			`import "sync"
 			func inspectMutex(*sync.Mutex) {}
@@ -110,8 +109,7 @@ func TestStaticAnalysisPSets(t *testing.T) {
 				s.mu.Lock() //@ blocks
 			}`,
 			BlockAnalysisTest,
-		},
-		{
+		}, {
 			"sync.Locker.Lock",
 			`import "sync"
 			func lockit(l sync.Locker) { l.Lock() } //@ releases
@@ -119,6 +117,21 @@ func TestStaticAnalysisPSets(t *testing.T) {
 				var mu sync.Mutex //@ pset
 				lockit(&mu)
 				mu.Lock() //@ blocks
+			}`,
+			BlockAnalysisTest,
+		}, {
+			"fakelock",
+			`import "sync"
+
+			type fakelock struct {}
+			func (fakelock) Lock()
+			func (fakelock) Unlock()
+
+			func main() {
+				var locker sync.Locker = fakelock{}
+				locker.Lock()
+
+				<-make(chan int) //@ pset, blocks
 			}`,
 			BlockAnalysisTest,
 		},

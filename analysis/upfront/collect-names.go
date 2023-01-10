@@ -20,11 +20,9 @@ type chanNameCollector struct {
 	function *ast.FuncDecl
 }
 
-var (
-	lock = &sync.Mutex{}
-	// ChannelNames is a map from source positions to strings denoting channel names.
-	ChannelNames = make(map[token.Pos]string)
-)
+// ChannelNames is a map from source positions to strings denoting channel names.
+var ChannelNames = make(map[token.Pos]string)
+var channelNamesLock sync.Mutex
 
 func (v *chanNameCollector) addName(pos token.Pos, name string) {
 	funName := "<global>"
@@ -32,8 +30,8 @@ func (v *chanNameCollector) addName(pos token.Pos, name string) {
 		funName = v.function.Name.Name
 	}
 
-	lock.Lock()
-	defer lock.Unlock()
+	channelNamesLock.Lock()
+	defer channelNamesLock.Unlock()
 	ChannelNames[pos] = fmt.Sprintf("%s.%s", funName, name)
 }
 
@@ -90,7 +88,7 @@ func CollectNames(pkgs []*packages.Package) {
 	}
 
 	if opts.Verbose() {
-		defer utils.TimeTrack(time.Now(), fmt.Sprintf("Collect channel names"))
+		defer utils.TimeTrack(time.Now(), "Collect channel names")
 	}
 
 	// Reset channel name map

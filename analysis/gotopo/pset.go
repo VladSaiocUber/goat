@@ -19,28 +19,42 @@ import (
 	"golang.org/x/tools/go/ssa"
 )
 
-// PSet construction context
-type psetCtxt struct {
-	valid        utils.SSAValueSet
-	chanChanDeps map[ssa.Value]utils.SSAValueSet
-}
+type (
+	// PSets are grouped channel allocation instructions, denoting
+	// abstract channel locations on the heap.
+	PSets []utils.SSAValueSet
 
-// GCatch style PSets
-type PSets []utils.SSAValueSet
+	// psetCtxt is a channel set construction context
+	psetCtxt struct {
+		*u.PointerResult
 
+		valid        utils.SSAValueSet
+		chanChanDeps map[ssa.Value]utils.SSAValueSet
+	}
+
+	// psetConfig configures a P-set computation with additional details, included:
+	//
+	// 	1. Whole program CFG
+	// 	2. Call-graph
+	// 	3. CFG entry node
+	// 	4. The set of primitives considered "in-scope" when
+	psetConfig struct {
+		CFG   *cfg.Cfg
+		G     graph.Graph[*ssa.Function]
+		entry cfg.Node
+		// The primitives that should be considered when forming PSets
+		primsInScope *utils.SSAValueSet
+	}
+)
+
+// blacklistPrimitive checks whether an SSA value is `nil` or declared in a
+// function in $GOROOT.
 func blacklistPrimitive(p ssa.Value) bool {
-	return pkgutil.CheckInGoroot(p.Parent())
-	// if f := p.Parent(); f != nil {
-	// 	pkg := strings.Split(f.Pkg.String(), " ")[1]
-	// 	// fmt.Println(pkg, strings.Split(pkg, "/")[0] == "net")
-	// 	// utils.Prompt()
-	// 	if strings.Split(pkg, "/")[0] == "net" {
-	// 		return true
-	// 	}
-	// }
-	// return false
+	return p == nil || pkgutil.CheckInGoroot(p.Parent())
 }
 
+// getPrimitives uses the points-to result and an SSA value from which to extract
+// a set of concurrency primitive allocation sites.
 func getPrimitives(v ssa.Value, pt *u.PointerResult) (res map[ssa.Value]struct{}) {
 	res = make(map[ssa.Value]struct{})
 
@@ -48,7 +62,7 @@ func getPrimitives(v ssa.Value, pt *u.PointerResult) (res map[ssa.Value]struct{}
 	rec = func(v ssa.Value) {
 		for _, l := range pt.Queries[v].PointsTo().Labels() {
 			p := l.Value()
-			if p == nil || blacklistPrimitive(p) {
+			if blacklistPrimitive(p) {
 				continue
 			}
 
@@ -71,7 +85,6 @@ func getPrimitives(v ssa.Value, pt *u.PointerResult) (res map[ssa.Value]struct{}
 			}
 		}
 	}
-
 	rec(v)
 	return
 }
@@ -94,7 +107,7 @@ func (C psetCtxt) makeDependencyMapFromRootNode(
 	getPrimitives := func(v ssa.Value) map[ssa.Value]struct{} {
 		res := getPrimitives(v, pt)
 		for v := range res {
-			if _, ok := C.valid.Get(v); !ok {
+			if !C.valid.Contains(v) {
 				delete(res, v)
 			}
 		}
@@ -169,17 +182,37 @@ func (C psetCtxt) makeDependencyMapFromRootNode(
 			// If x is a channel, and a payload of ch, create
 			// a carrier dependency for x on ch
 			addChanChanDependency := func(ch, x ssa.Value) {
-				if _, ok := x.Type().Underlying().(*T.Chan); ok {
-					for x := range getPrimitives(x) {
-						set := utils.MakeSSASet()
-						if prev, ok := C.chanChanDeps[x]; ok {
-							set = prev.Join(set)
-						}
-						for ch := range getPrimitives(ch) {
-							set = set.Add(ch)
-						}
+				carriers := getPrimitives(ch)
 
-						C.chanChanDeps[x] = set
+				addDependency := func(x ssa.Value) {
+					set := utils.MakeSSASet()
+					if prev, ok := C.chanChanDeps[x]; ok {
+						set = prev.Join(set)
+					}
+					for ch := range carriers {
+						set = set.Add(ch)
+					}
+
+					C.chanChanDeps[x] = set
+				}
+
+				// Create dependencies between channels and payloads that
+				// may include channels. The dependency scenarios are:
+				if _, ok := x.Type().Underlying().(*T.Chan); ok {
+					// 	1. A channel is the direct payload of another channel:
+					//		∀ x' ∈ pt(x), ch' ∈ pt(ch),
+					// 		Create a carrier dependency from x' to ch'
+					for x := range getPrimitives(x) {
+						addDependency(x)
+					}
+				}
+
+				//  2. A channel is a field in a heap object (*struct value):
+				// 		∀ ch' ∈ pt(ch), f ∈ fields(x), x' ∈ fieldPt(x, f),
+				// 		Create a carrier dependency from x' to ch'
+				for _, pt := range pt.PayloadQueries[x] {
+					for _, label := range pt.PointsTo().Labels() {
+						addDependency(label.Value())
 					}
 				}
 			}
@@ -272,14 +305,6 @@ func (C psetCtxt) makeDependencyMapFromRootNode(
 		}
 		visited[f] = struct{}{}
 	})
-}
-
-type psetConfig struct {
-	CFG   *cfg.Cfg
-	G     graph.Graph[*ssa.Function]
-	entry cfg.Node
-	// The primitives that should be considered when forming PSets
-	primsInScope *utils.SSAValueSet
 }
 
 func makePSetCtxt(C psetConfig) (ctxt psetCtxt) {
@@ -414,33 +439,46 @@ func smallerScope(p1, p2 ssa.Value,
 	return CallDAG.ComponentOf(p2Dom) <= CallDAG.ComponentOf(p1Dom)
 }
 
+// GetGCatchPSets groups concurrency primitives. The heuristics employed
+// are inspired by those described by GCatch, with some additions:
+//
+//  1. Channels acting as carriers for other channels are included in the payload's
+//     P-set. This is extended to heap objects that contain references to channels.
 func GetGCatchPSets(CFG *cfg.Cfg, f *ssa.Function, pt *u.PointerResult,
 	G graph.Graph[*ssa.Function],
 	computeDominator func(...*ssa.Function) *ssa.Function,
 	CallDAG graph.SCCDecomposition[*ssa.Function],
 	primsToUses map[ssa.Value]map[*ssa.Function]struct{},
 ) (psets PSets) {
+	// Construct empty dependency graph.
 	D := make(map[ssa.Value]map[ssa.Value]struct{})
-
+	// Extract entry function entry CF-node.
 	entry, _ := CFG.FunIO(f)
 
+	// Construct an SSA set representing primitives within the scope.
 	primsInScope := utils.MakeSSASet()
 	for prim := range primsToUses {
 		primsInScope = primsInScope.Add(prim)
 	}
 
+	// Initialize P-set construction context.
 	C := makePSetCtxt(psetConfig{CFG, G, entry, &primsInScope})
+	// Construct primitive dependency graph through the reachable CFG,
+	// by constructing a dependency map.
 	C.makeDependencyMapFromRootNode(CFG, entry, D, G, pt)
 
+	// Create a mapping from SSA values to their corresponding disjoint sets.
 	PMap := make(map[ssa.Value]*uf.Element)
 
-	// Pre-fill Psets for new primitives
+	// Initially, every concurrency primitive is denoted as being part of its
+	// own disjoint set.
 	for p := range D {
 		el := uf.NewElement()
 		el.Data = p
 		PMap[p] = el
 	}
 
+	// Unify the disjoint sets of all primitives with circular dependencies.
 	for p1, ps := range D {
 		for p2 := range ps {
 			ps2 := D[p2]
@@ -450,8 +488,11 @@ func GetGCatchPSets(CFG *cfg.Cfg, f *ssa.Function, pt *u.PointerResult,
 		}
 	}
 
+	// Map disjoint sets to SSA value sets.
 	sets := make(map[*uf.Element]utils.SSAValueSet)
 
+	// For every unique SSA value and its corresponding disjoint union,
+	// construct an equivalent SSA value set.
 	for v, rep := range PMap {
 		set, ok := sets[rep.Find()]
 
@@ -462,6 +503,8 @@ func GetGCatchPSets(CFG *cfg.Cfg, f *ssa.Function, pt *u.PointerResult,
 		sets[rep.Find()] = set.Add(v)
 	}
 
+	// For every member of every non-empty disjoint union, a corresponding SSA value sets,
+	// that includes that member, any dependents with a smaller scope, and any potential carriers.
 	seen := hmap.NewMap[bool](utils.SSAValueSetHasher)
 	for _, set := range sets {
 		if set.Empty() {
@@ -534,7 +577,7 @@ func psetsFromDMap(D map[ssa.Value]map[ssa.Value]struct{}) (psets PSets) {
 
 func (psets PSets) Get(v ssa.Value) utils.SSAValueSet {
 	for _, pset := range psets {
-		if _, ok := pset.Get(v); ok {
+		if pset.Contains(v) {
 			return pset
 		}
 	}

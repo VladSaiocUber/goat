@@ -19,7 +19,7 @@ func TestGetReflectedChannels(t *testing.T) {
 	fun := loadRes.Mains[0].Func("main")
 	for _, insn := range fun.Blocks[0].Instrs {
 		if mkChn, ok := insn.(*ssa.MakeChan); ok {
-			if _, found := reflectedChans.Get(mkChn); !found {
+			if !reflectedChans.Contains(mkChn) {
 				t.Error("Expected reflectedChans to contain", mkChn)
 			}
 		}

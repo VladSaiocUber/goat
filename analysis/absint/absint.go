@@ -346,8 +346,8 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 	swapWildcard := func(mem L.Memory, v ssa.Value) (L.AbstractValue, L.Memory) {
 		return C.swapWildcard(s.Superloc, g, mem, v)
 	}
-	evalSSA := func(mem L.Memory, v ssa.Value) L.AbstractValue {
-		return EvaluateSSA(g, mem, v)
+	evalSSA := func(v ssa.Value) L.AbstractValue {
+		return EvaluateSSA(g, initMem, v)
 	}
 
 	//------------------------------------------------------
@@ -433,7 +433,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 			if phi, ok := instr.(*ssa.Phi); ok {
 				mem = mem.Update(
 					loc.LocationFromSSAValue(g, phi),
-					EvaluateSSA(g, initMem, phi.Edges[predIdx]),
+					evalSSA(phi.Edges[predIdx]),
 				)
 			} else {
 				break
@@ -579,7 +579,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 		case "ssa:wrapnilchk":
 			// wrapnilchk returns ptr if non-nil, panics otherwise.
 			// (For use in indirection wrappers.)
-			argV := EvaluateSSA(g, initMem, n.Args()[0])
+			argV := evalSSA(n.Args()[0])
 			if argV.IsWildcard() {
 				singleUpd(initMem.Update(
 					loc.LocationFromSSAValue(g, n.Call.Value()),
@@ -684,7 +684,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 				res = Elements().AbstractPointerV(allocSite)
 			case *ssa.MakeChan:
 				C.Metrics.AddChan(cl)
-				capValue := EvaluateSSA(g, mops.Memory(), val.Size).BasicValue()
+				capValue := evalSSA(val.Size).BasicValue()
 				// Convert from constant prop. lattice to flat int lattice
 				switch {
 				case capValue.IsBot():
@@ -725,7 +725,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 					res = L.TopValueForType(insn.Type())
 
 				default:
-					res = A.UnOp(evalSSA(initMem, val.X), val)
+					res = A.UnOp(evalSSA(val.X), val)
 				}
 
 			case *ssa.BinOp:
@@ -774,7 +774,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 					ptNil := Elements().AbstractPointerV(loc.NilLocation{})
 					if blt, ok := call.Call.Value.(*ssa.Builtin); ok &&
 						blt.Name() == "len" && isIf &&
-						!evalSSA(initMem, call.Call.Args[0]).Eq(ptNil) {
+						!evalSSA(call.Call.Args[0]).Eq(ptNil) {
 						res = Elements().AbstractBasic(true)
 					}
 				}
@@ -783,7 +783,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 				// Put free variables in the struct
 				bindings := make(map[any]L.Element)
 				for i, value := range val.Bindings {
-					bindings[i] = EvaluateSSA(g, initMem, value)
+					bindings[i] = evalSSA(value)
 				}
 
 				res = mops.HeapAlloc(allocSite, Elements().AbstractClosure(val.Fn, bindings))
@@ -853,7 +853,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 				if val.IsString {
 					TOP := makeConstant(false).ToTop()
 
-					iter := EvaluateSSA(g, initMem, val.Iter).BasicValue()
+					iter := evalSSA(val.Iter).BasicValue()
 
 					switch {
 					case iter.IsTop():
@@ -876,7 +876,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 						}
 					}
 				} else {
-					v := evalSSA(initMem, val.Iter)
+					v := evalSSA(val.Iter)
 					tupleT := val.Type().(*T.Tuple)
 
 					if v.IsWildcard() {
@@ -919,7 +919,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 				}
 
 			case *ssa.Extract:
-				tVal := EvaluateSSA(g, initMem, val.Tuple)
+				tVal := evalSSA(val.Tuple)
 				switch strukt := tVal.Struct().(type) {
 				case *L.DroppedTop:
 					typ := val.Tuple.Type().(*T.Tuple)
@@ -932,13 +932,13 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 				}
 
 			case *ssa.ChangeType:
-				res = EvaluateSSA(g, initMem, val.X)
+				res = evalSSA(val.X)
 
 			case *ssa.ChangeInterface:
-				res = EvaluateSSA(g, initMem, val.X)
+				res = evalSSA(val.X)
 
 			case *ssa.Convert:
-				inner := EvaluateSSA(g, initMem, val.X)
+				inner := evalSSA(val.X)
 				toT := val.Type().Underlying()
 
 				res = func() L.AbstractValue {
@@ -1000,7 +1000,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 				}()
 
 			case *ssa.MakeInterface:
-				res = mops.HeapAlloc(allocSite, EvaluateSSA(g, initMem, val.X))
+				res = mops.HeapAlloc(allocSite, evalSSA(val.X))
 
 			case *ssa.TypeAssert:
 				v, mem := swapWildcard(initMem, val.X)
@@ -1076,7 +1076,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 				}
 
 			case *ssa.Field:
-				res = EvaluateSSA(g, initMem, val.X).StructValue().Get(val.Field).AbstractValue()
+				res = evalSSA(val.X).StructValue().Get(val.Field).AbstractValue()
 
 			case *ssa.FieldAddr:
 				res, initMem = wrapPointers(val.X, val.Field)
@@ -1122,22 +1122,22 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 
 			case *ssa.Index:
 				// TODO: Model out-of-bounds panic
-				res = evalSSA(initMem, val.X).ArrayElementValue()
+				res = evalSSA(val.X).ArrayElementValue()
 
 			case *ssa.Slice:
-				res = evalSSA(initMem, val.X)
+				res = evalSSA(val.X)
 
 			case *ssa.SliceToArrayPointer:
-				res = evalSSA(initMem, val.X)
+				res = evalSSA(val.X)
 
 			case *ssa.Range:
-				res = evalSSA(initMem, val.X)
+				res = evalSSA(val.X)
 
 			case *ssa.Phi:
 				// Registers of phi nodes are updated in `updatePhiNodes`.
 				// This should really be a no-op, but the code below expects res
 				// to have a non-bottom value, so we copy it out and re-insert it.
-				res = evalSSA(initMem, val)
+				res = evalSSA(val)
 
 			default:
 				log.Fatalf("Don't know how to handle %T %v", val, val)
@@ -1183,8 +1183,8 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 			v, mem := swapWildcard(initMem, insn.Map)
 			initMem = mem
 			maps := v.PointerValue()
-			keyV := EvaluateSSA(g, initMem, insn.Key)
-			valV := EvaluateSSA(g, initMem, insn.Value)
+			keyV := evalSSA(insn.Key)
+			valV := evalSSA(insn.Value)
 
 			maps = maps.FilterNilCB(func() {
 				succs = succs.Update(cl.Panic(), initState)
@@ -1207,12 +1207,12 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 			var rval L.AbstractValue
 
 			if len(insn.Results) == 1 {
-				rval = EvaluateSSA(g, initMem, insn.Results[0])
+				rval = evalSSA(insn.Results[0])
 			} else {
 				// Make tuple
 				bindings := make(map[interface{}]L.Element)
 				for i, res := range insn.Results {
-					bindings[i] = EvaluateSSA(g, initMem, res)
+					bindings[i] = evalSSA(res)
 				}
 
 				rval = Elements().AbstractStruct(bindings)
@@ -1240,7 +1240,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 			singleUpd(updatePhiNodes(bl, bl.Succs[0]))
 
 		case *ssa.If:
-			condV := EvaluateSSA(g, initMem, insn.Cond).BasicValue()
+			condV := evalSSA(insn.Cond).BasicValue()
 
 			bl := insn.Block()
 			// Hacking our way around...
@@ -1312,7 +1312,7 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 				for i, op := range n.Instruction().Operands([]*ssa.Value{}) {
 					v = *op
 					log.Printf("Operand %d is %s of type %s", i, v, v.Type())
-					av := EvaluateSSA(g, initMem, v)
+					av := evalSSA(v)
 					log.Println("Has abstract value", av)
 
 					if av.IsPointer() {

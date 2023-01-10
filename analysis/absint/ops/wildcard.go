@@ -63,7 +63,7 @@ func labelsToAllocs(pt pointer.Pointer) []loc.Location {
 		}
 
 		// Keep track of the type as the location is constructed. This is required for infering the type of
-		//
+		// the abstract value.
 		var typ T.Type
 		switch bTyp := v.Type().Underlying().(type) {
 		case *T.Slice:
@@ -72,7 +72,7 @@ func labelsToAllocs(pt pointer.Pointer) []loc.Location {
 				log.Fatalf("Access path encodes non-array access action %v for slice value %v", accesses, v)
 			}
 
-			// Use up access path.
+			// Discard the head of the access path.
 			accesses = accesses[1:]
 			// Get type of underlying element
 			typ = bTyp.Elem()

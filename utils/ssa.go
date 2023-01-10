@@ -1,8 +1,6 @@
 package utils
 
 import (
-	"fmt"
-	"go/token"
 	"go/types"
 
 	"golang.org/x/tools/go/pointer"
@@ -115,6 +113,13 @@ func TypeEmbedsConcurrencyPrimitive(typ types.Type) bool {
 	return false
 }
 
+// AllocatesConcurrencyPrimitive checks whether a value allocates a concurrency primitive.
+// This applies to:
+//  1. Any `make chan` instruction, axiomatically
+//  2. Any `new` instruction if the type underlied by the pointer
+//     embeds a concurrency primitive.
+//  3. Any `make slice` instruction if the type of the underlying elements
+//     embeds a concurrency primitive.
 func AllocatesConcurrencyPrimitive(v ssa.Value) bool {
 	switch v := v.(type) {
 	case *ssa.MakeChan:
@@ -252,38 +257,4 @@ func TypeHasConcurrencyPrimitives(typ types.Type, visited map[types.Type]struct{
 		}
 	}
 	return false
-}
-
-func PrintSSAFun(fun *ssa.Function) {
-	fmt.Println(fun.Name())
-	for bi, b := range fun.Blocks {
-		fmt.Println(bi, ":")
-		for _, i := range b.Instrs {
-			switch v := i.(type) {
-			case *ssa.DebugRef:
-				// skip
-			case ssa.Value:
-				fmt.Println(v.Name(), "=", v)
-			default:
-				fmt.Println(i)
-			}
-		}
-	}
-}
-
-func PrintSSAFunWithPos(fset *token.FileSet, fun *ssa.Function) {
-	fmt.Println(fun.Name())
-	for bi, b := range fun.Blocks {
-		fmt.Println(bi, ":")
-		for _, i := range b.Instrs {
-			switch v := i.(type) {
-			case *ssa.DebugRef:
-				// skip
-			case ssa.Value:
-				fmt.Println(v.Name(), "=", v, "at position:", fset.Position(v.Pos()))
-			default:
-				fmt.Println(i, "at position:", fset.Position(i.Pos()))
-			}
-		}
-	}
 }

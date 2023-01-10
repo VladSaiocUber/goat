@@ -789,8 +789,7 @@ func TestBlockingAnalysis(t *testing.T) {
 			}`,
 			BlockAnalysisTest,
 		}, {
-			// See TODO in absint of FunctionExit
-			"[disabled] comm-separated-calls",
+			"comm-separated-calls",
 			at(ann.Goro(main, true, root), ann.Goro(g(0), true, root, g(0))) + `
 			func helper() {}
 			func main() {
@@ -803,6 +802,22 @@ func TestBlockingAnalysis(t *testing.T) {
 				<-ch ` + at(ann.MayRelease(main)) + `
 				helper()
 			}`,
+			BlockAnalysisTest,
+		}, {
+			"comm-separated-recursion-unsoundness",
+			// The parameter p takes the value false (instead of top?) after
+			// f(false) returns, leading to unsoundness.
+			`func f(p bool) {
+				if p {
+					make(chan int, 1) <- 0 // Throw away info at function entry
+					f(false)
+					if p {
+						// Annotation used to check for presence of dataflow
+						<-make(chan int) //@ blocks, fn
+					}
+				}
+			}
+			func main() { f(true) }`,
 			BlockAnalysisTest,
 		},
 	}

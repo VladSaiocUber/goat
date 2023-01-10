@@ -517,9 +517,11 @@ func (C AnalysisCtxt) IsLocationFocused(l loc.Location, mem L.Memory) bool {
 
 	if aL, ok := l.(loc.AllocationSiteLocation); ok {
 		if _, isItf := aL.Type().Underlying().(*types.Interface); isItf {
-			for _, ptr := range mem.GetUnsafe(aL).PointerValue().NonNilEntries() {
-				if C.IsLocationFocused(ptr, mem) {
-					return true
+			if av := mem.GetUnsafe(aL); av.IsPointer() {
+				for _, ptr := range av.PointerValue().NonNilEntries() {
+					if C.IsLocationFocused(ptr, mem) {
+						return true
+					}
 				}
 			}
 
