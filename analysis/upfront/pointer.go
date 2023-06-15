@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/cs-au-dk/goat/utils"
+	"github.com/vladsaiocuber/stamets"
 
 	"golang.org/x/tools/go/pointer"
 	"golang.org/x/tools/go/ssa"
@@ -195,7 +196,13 @@ func Andersen(prog *ssa.Program, mains []*ssa.Package, include IncludeType) *Poi
 
 	cQueries := collectPtsToQueries(prog, a_config, include)
 
-	result, err := pointer.Analyze(a_config)
+	resultMetrics := stamets.Analyze(a_config)
+	fmt.Println(resultMetrics)
+
+	result, err := resultMetrics.Unpack()
+	cgMetrics := stamets.GetCallGraphMetrics(result.CallGraph)
+	fmt.Println(cgMetrics)
+
 	if err != nil {
 		fmt.Println("Failed pointer analysis")
 		fmt.Println(err)
