@@ -27,9 +27,8 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UVUgZn+9EI=
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
-github.com/stretchr/testify v1.8.4/go.mod h1:sz/lmYIOXD/1dqDmKjjqLyZ2RngseejIcXlSw2iwfAo=
-github.com/vladsaiocuber/stamets v1.0.1 h1:LHxM0VBbxr8r45egL689yPSnPiD/NHbsqaOAf93vTs4=
-github.com/vladsaiocuber/stamets v1.0.1/go.mod h1:rg8mOPaXeyvpBI8H0OlItmX2lCb8Fw9HRE91bef5H4M=
+github.com/vladsaiocuber/stamets v1.0.2 h1:zSQeD/wjWZWnAJ93mDnDmNaxqlilEUqD+lmTt0ukpG8=
+github.com/vladsaiocuber/stamets v1.0.2/go.mod h1:rg8mOPaXeyvpBI8H0OlItmX2lCb8Fw9HRE91bef5H4M=
 golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1 h1:k/i9J1pBpvlfR+9QsetwPyERsqu1GIbi967PQMq3Ivc=
 golang.org/x/exp v0.0.0-20230522175609-2e198f4a06a1/go.mod h1:V1LtkGg67GoY2N1AnLN78QLrzxkLyJw7RJb1gzOOz9w=
 golang.org/x/mod v0.10.0 h1:lFO9qtOdlre5W1jxS3r/4szv2/6iXxScdzjoBMXNhYk=
