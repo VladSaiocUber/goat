@@ -12,6 +12,7 @@ require (
 require (
 	github.com/sebdah/goldie/v2 v2.5.3
 	golang.org/x/tools/go/pointer v0.1.0-deprecated
+	gopkg.in/yaml.v2 v2.2.4
 )
 
 require (
