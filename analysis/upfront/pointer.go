@@ -197,17 +197,18 @@ func Andersen(prog *ssa.Program, mains []*ssa.Package, include IncludeType) *Poi
 	cQueries := collectPtsToQueries(prog, a_config, include)
 
 	resultMetrics := stamets.Analyze(a_config)
-	fmt.Println(resultMetrics)
-
 	result, err := resultMetrics.Unpack()
-	cgMetrics := stamets.GetCallGraphMetrics(result.CallGraph)
-	fmt.Println(cgMetrics)
 
 	if err != nil {
 		fmt.Println("Failed pointer analysis")
 		fmt.Println(err)
 		os.Exit(1)
 	}
+
+	fmt.Println(resultMetrics.String())
+
+	cgMetrics := stamets.GetCallGraphMetrics(result.CallGraph)
+	fmt.Println(cgMetrics.String())
 
 	return &PointerResult{*result, cQueries}
 }
