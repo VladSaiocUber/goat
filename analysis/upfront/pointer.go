@@ -196,7 +196,17 @@ func Andersen(prog *ssa.Program, mains []*ssa.Package, include IncludeType) *Poi
 
 	cQueries := collectPtsToQueries(prog, a_config, include)
 
-	resultMetrics := stamets.Analyze(a_config)
+	resultMetrics := func() stamets.PTAMetrics {
+		if opts.PTATimeout() > 0 {
+			res, ok := stamets.AnalyzeWithTimeout(opts.PTATimeout(), a_config)
+			if !ok {
+				log.Fatalf("Exceeded PTA timeout: %s\n", opts.PTATimeout())
+			}
+			return res
+		}
+
+		return stamets.Analyze(a_config)
+	}()
 	result, err := resultMetrics.Unpack()
 
 	if err != nil {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 )
 
 // options contains all the configurable flags that can be passed from the CLI.
@@ -13,6 +14,7 @@ type options struct {
 	minlen                uint
 	pseti                 int
 	nodesep               float64
+	ptaTimeout            time.Duration
 	function              string
 	outputFormat          string
 	gopath                string
@@ -154,6 +156,10 @@ func (optInterface) GoroBound() int {
 
 func (optInterface) PSetIndex() int {
 	return opts.pseti
+}
+
+func (optInterface) PTATimeout() time.Duration {
+	return opts.ptaTimeout
 }
 
 // IsPickedPset checks whether a computed Pset was chosen by index.
@@ -320,6 +326,10 @@ func init() {
 	flag.UintVar(&(opts.minlen), "minlen", 2, "Minimum edge length (for wider output).")
 	flag.Float64Var(&(opts.nodesep), "nodesep", 0.35, "Minimum space between two adjacent nodes in the same rank (for taller output).")
 	flag.IntVar(&(opts.pseti), "pset", -1, "Index of Pset to analyze.")
+	var duration int
+	flag.IntVar(&duration, "pta-timeout", 0, "Maximum duration allowed for the points-to analysis (in seconds). If unspecified, PTA may carry out indefinitely.")
+	opts.ptaTimeout = time.Duration(duration)
+
 	flag.StringVar(&(opts.function), "fun", "main", "target a specific function wrt. the given task.\n"+
 		"- Function names need not be fully qualified wrt. package name. If a simple name is provided, "+
 		"the framework will search for a function matching that name in the main package. If one is not found, "+
