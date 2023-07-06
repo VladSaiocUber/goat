@@ -14,7 +14,7 @@ type options struct {
 	minlen                uint
 	pseti                 int
 	nodesep               float64
-	ptaTimeout            time.Duration
+	ptaTimeout            int
 	function              string
 	outputFormat          string
 	gopath                string
@@ -159,7 +159,7 @@ func (optInterface) PSetIndex() int {
 }
 
 func (optInterface) PTATimeout() time.Duration {
-	return opts.ptaTimeout
+	return time.Duration(opts.ptaTimeout) * time.Second
 }
 
 // IsPickedPset checks whether a computed Pset was chosen by index.
@@ -326,9 +326,7 @@ func init() {
 	flag.UintVar(&(opts.minlen), "minlen", 2, "Minimum edge length (for wider output).")
 	flag.Float64Var(&(opts.nodesep), "nodesep", 0.35, "Minimum space between two adjacent nodes in the same rank (for taller output).")
 	flag.IntVar(&(opts.pseti), "pset", -1, "Index of Pset to analyze.")
-	var duration int
-	flag.IntVar(&duration, "pta-timeout", 0, "Maximum duration allowed for the points-to analysis (in seconds). If unspecified, PTA may carry out indefinitely.")
-	opts.ptaTimeout = time.Duration(duration)
+	flag.IntVar(&opts.ptaTimeout, "pta-timeout", 0, "Maximum duration allowed for the points-to analysis (in seconds). If unspecified, PTA may carry out indefinitely.")
 
 	flag.StringVar(&(opts.function), "fun", "main", "target a specific function wrt. the given task.\n"+
 		"- Function names need not be fully qualified wrt. package name. If a simple name is provided, "+
