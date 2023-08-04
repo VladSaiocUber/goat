@@ -44,3 +44,4 @@ Visualization
 /benchmarks/pdfs
 
 __pycache__
+*.golden

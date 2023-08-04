@@ -92,7 +92,7 @@ func EvaluateSSA(g defs.Goro, mem L.Memory, val ssa.Value) L.AbstractValue {
 		} else {
 			// If the constant is a pointer-like, construct an abstract points-to set
 			// containing only the nil-pointer.
-			return Elements().AbstractPointerV(loc.NilLocation{})
+			return L.ZeroValueForType(n.Type())
 		}
 	case *ssa.Builtin:
 		panic("Unexpected evaluation of built-in as SSA value.")
@@ -1122,7 +1122,13 @@ func (s *AbsConfiguration) singleSilent(C AnalysisCtxt, g defs.Goro, cl defs.Ctr
 
 			case *ssa.Index:
 				// TODO: Model out-of-bounds panic
-				res = evalSSA(initMem, val.X).ArrayElementValue()
+				v := evalSSA(initMem, val.X)
+				switch {
+				case v.IsArray():
+					res = v.ArrayElementValue()
+				case v.IsBasic():
+					res = L.Consts().BasicTopValue()
+				}
 
 			case *ssa.Slice:
 				res = evalSSA(initMem, val.X)
